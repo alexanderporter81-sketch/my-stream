@@ -860,8 +860,8 @@ header {
   <div class="iframe-outer">
     <div class="iframe-box" id="iframe-box">
       <iframe id="frame" src="" allowfullscreen
-        allow="fullscreen; autoplay; encrypted-media; picture-in-picture"
-        sandbox="allow-scripts allow-same-origin allow-presentation allow-forms allow-popups"></iframe>
+        allow="fullscreen *; autoplay; encrypted-media; picture-in-picture"
+        sandbox="allow-scripts allow-same-origin allow-presentation allow-forms allow-popups allow-popups-to-escape-sandbox"></iframe>
     </div>
   </div>
   <div class="folder-row">
@@ -1157,13 +1157,38 @@ function play(id, name, card) {
   var pw = document.getElementById('player-wrap');
   pw.style.display = 'block';
   fixIframeHeight();
-  // Scroll to top then focus close button for remote usability
   pw.scrollIntoView({behavior:'smooth', block:'start'});
-  setTimeout(function() {
-    document.getElementById('close-btn').focus();
-  }, 400);
   document.querySelectorAll('.card').forEach(function(c) { c.classList.remove('live'); });
   if (card) card.classList.add('live');
+
+  // Auto-fullscreen after stream loads (short delay lets the iframe src set)
+  setTimeout(function() {
+    var frame = document.getElementById('frame');
+    var box   = document.getElementById('iframe-box');
+    try {
+      // Try iframe element first, then its container
+      var el = frame || box;
+      if (el.requestFullscreen)            { el.requestFullscreen(); }
+      else if (el.webkitRequestFullscreen) { el.webkitRequestFullscreen(); }
+      else if (el.mozRequestFullScreen)    { el.mozRequestFullScreen(); }
+      else if (el.msRequestFullscreen)     { el.msRequestFullscreen(); }
+    } catch(e) {
+      // Fullscreen blocked by browser policy — just focus close btn instead
+      document.getElementById('close-btn').focus();
+    }
+  }, 800);
+}
+
+// Exit fullscreen restores normal view
+document.addEventListener('fullscreenchange', handleFsChange);
+document.addEventListener('webkitfullscreenchange', handleFsChange);
+function handleFsChange() {
+  var fs = document.fullscreenElement || document.webkitFullscreenElement;
+  if (!fs) {
+    // Exited fullscreen — focus close button so remote user can navigate
+    var btn = document.getElementById('close-btn');
+    if (btn) btn.focus();
+  }
 }
 
 /* ── CLOSE PLAYER ── */
