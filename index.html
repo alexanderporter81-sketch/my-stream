@@ -611,6 +611,38 @@ header {
   header { padding: 0.8rem 1rem; }
   #player-wrap { padding: 1rem; }
 }
+
+/* ── DRAG & DROP ── */
+.card[draggable="true"] { cursor: grab; }
+.card.dragging {
+  opacity: 0.35;
+  cursor: grabbing;
+  -webkit-transform: scale(0.97);
+  transform: scale(0.97);
+}
+.card.drag-over {
+  border-color: var(--accent);
+  background: var(--accent-bg);
+  -webkit-transform: scale(1.03);
+  transform: scale(1.03);
+}
+.drag-handle {
+  position: absolute;
+  top: 6px;
+  left: 6px;
+  color: var(--dim);
+  font-size: 0.75rem;
+  line-height: 1;
+  cursor: grab;
+  padding: 2px 3px;
+  border-radius: 3px;
+  -webkit-transition: color .1s;
+  transition: color .1s;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.card:hover .drag-handle,
+.card:focus .drag-handle { color: var(--muted); }
 </style>
 </head>
 <body>
@@ -707,6 +739,24 @@ function save(arr) {
   catch(e) {}
 }
 
+/* ── DRAG STATE ── */
+var dragSrc = null;
+var touchDragSrc = null;
+var touchDragDest = null;
+var touchTimer = null;
+var isTouchDragging = false;
+
+function reorder(srcId, destId) {
+  var arr = load();
+  var si = arr.findIndex(function(c) { return c.id === srcId; });
+  var di = arr.findIndex(function(c) { return c.id === destId; });
+  if (si === -1 || di === -1) return;
+  var item = arr.splice(si, 1)[0];
+  arr.splice(di, 0, item);
+  save(arr);
+  renderFavorites(document.getElementById('search').value);
+}
+
 /* ── IFRAME HEIGHT FIX (no CSS min() support) ── */
 function fixIframeHeight() {
   var box = document.getElementById('iframe-box');
@@ -768,10 +818,12 @@ function makeCard(ch) {
   card.setAttribute('tabindex', '0');
   card.setAttribute('role', 'listitem');
   card.setAttribute('aria-label', ch.name + ', channel ' + ch.id);
+  card.setAttribute('draggable', 'true');
   card.dataset.id = ch.id;
 
   var imgSrc = logoPath(ch.name);
   card.innerHTML =
+    '<div class="drag-handle" aria-hidden="true" title="Drag to reorder">:::</div>' +
     '<img class="logo-img" src="' + imgSrc + '" alt="" ' +
       'onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'flex\'">' +
     '<div class="logo-fallback">' + ch.name.slice(0,8) + '</div>' +
@@ -786,10 +838,10 @@ function makeCard(ch) {
 
   card.onclick = function(e) {
     if (e.target.classList.contains('del-btn')) return;
+    if (e.target.classList.contains('drag-handle')) return;
     play(ch.id, ch.name, card);
   };
 
-  // Enter/Space activates card (remote D-pad select button)
   card.onkeydown = function(e) {
     if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
@@ -801,6 +853,65 @@ function makeCard(ch) {
     }
     handleGridArrow(e);
   };
+
+  /* ── MOUSE DRAG ── */
+  card.addEventListener('dragstart', function(e) {
+    dragSrc = ch.id;
+    card.classList.add('dragging');
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', ch.id);
+  });
+  card.addEventListener('dragend', function() {
+    card.classList.remove('dragging');
+    document.querySelectorAll('.card').forEach(function(c) { c.classList.remove('drag-over'); });
+  });
+  card.addEventListener('dragover', function(e) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    if (ch.id !== dragSrc) card.classList.add('drag-over');
+  });
+  card.addEventListener('dragleave', function() {
+    card.classList.remove('drag-over');
+  });
+  card.addEventListener('drop', function(e) {
+    e.preventDefault();
+    card.classList.remove('drag-over');
+    if (dragSrc && dragSrc !== ch.id) reorder(dragSrc, ch.id);
+  });
+
+  /* ── TOUCH DRAG (Fire Tablet) ── */
+  card.addEventListener('touchstart', function(e) {
+    touchDragSrc = ch.id;
+    touchTimer = setTimeout(function() {
+      card.classList.add('dragging');
+      isTouchDragging = true;
+    }, 300);
+  }, {passive: true});
+
+  card.addEventListener('touchmove', function(e) {
+    if (!isTouchDragging) return;
+    e.preventDefault();
+    var touch = e.touches[0];
+    var el = document.elementFromPoint(touch.clientX, touch.clientY);
+    var target = el ? el.closest('.card') : null;
+    document.querySelectorAll('.card').forEach(function(c) { c.classList.remove('drag-over'); });
+    if (target && target.dataset.id && target.dataset.id !== touchDragSrc) {
+      target.classList.add('drag-over');
+      touchDragDest = target.dataset.id;
+    }
+  }, {passive: false});
+
+  card.addEventListener('touchend', function() {
+    clearTimeout(touchTimer);
+    card.classList.remove('dragging');
+    document.querySelectorAll('.card').forEach(function(c) { c.classList.remove('drag-over'); });
+    if (isTouchDragging && touchDragDest && touchDragDest !== touchDragSrc) {
+      reorder(touchDragSrc, touchDragDest);
+    }
+    isTouchDragging = false;
+    touchDragSrc = null;
+    touchDragDest = null;
+  });
 
   return card;
 }
